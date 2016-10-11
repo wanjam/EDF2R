@@ -62,10 +62,60 @@ DataFrame parseEDFevents(std::string fname) {
     Rcpp::Named("time")=time,
     Rcpp::Named("msg")=msg
   );
-
+  std::cout << "\nDone parsing messages.\n";
   return(EDF);
 }
 
+/*collect TTL Parallel Port Trigger info*/
+DataFrame parseEDFinput(std::string fname) {
+  /* initiation of the EDFFILE struct */
+  EDFFILE * ed = NULL;
+  int rv;
+
+  /* Command to open the EDF file. The first argument is the file path the EDF file, The second argument indicates whether you
+  want consistency checks. The third argument indicates whether you want the events to be loaded/opened as well. The fourth
+  argument indicates whether you want the samples to be loaded/opened as well. The fifth argument is a valid pointer to an integer.
+  When "rv" is not equal to 0, an error occured. */
+  ed = edf_open_file(&fname[0], 0, 1, 0, &rv);
+
+  int sampleCount = 0;
+
+  if (ed != NULL) {
+    /* Command to return the number of elements in the opened EDF file. */
+    sampleCount = edf_get_element_count(ed);
+  }
+
+  // Create the lists which we're going to return as a data.frame:
+  NumericVector time(sampleCount);
+  NumericVector ttl(sampleCount);
+
+  // Now, if possible, fill the lists:
+  if (ed != NULL) {
+    int curEvent = 0;
+
+    /* Initiation of an ALLF_DATA union which consists of the float data later on */
+    ALLF_DATA *fd = NULL;
+
+    /* A loop for the total number of events as determined by sampleCount */
+    for(int i = 0; i < sampleCount; i++)
+    {
+      /* Retrieve the type of the next data element in the EDF file */
+      int type = edf_get_next_data(ed);
+      if (type == INPUTEVENT) {
+        fd = edf_get_float_data(ed);
+        time[curEvent] = (double)fd->fe.sttime;
+        ttl[curEvent] = static_cast<int>(fd->fe.input);
+        curEvent++;
+      }
+    }
+  }
+  Rcpp::DataFrame TTL = Rcpp::DataFrame::create(
+    Rcpp::Named("time") = time,
+    Rcpp::Named("ttl")  = ttl
+  );
+  std::cout << "\nDone parsing TTL-triggers.\n";
+  return(TTL);
+}
 
 
 // [[Rcpp::export]]
@@ -107,6 +157,7 @@ List parseEDF(std::string fname) {
   NumericVector xR(sampleCount);
   NumericVector yR(sampleCount);
   NumericVector dilR(sampleCount);
+  NumericVector InputS(sampleCount);
 
   // Now, if possible, fill the lists:
   if (ed != NULL) {
@@ -115,7 +166,7 @@ List parseEDF(std::string fname) {
     /* Initiation of an ALLF_DATA union which consists of the float data later on */
     ALLF_DATA *fd = NULL;
 
-    /* A loop for the total number of events as determined by sampleCount */
+    /* A loop for the total number of events as determined by sampleCount*/
     for(int i = 0; i < sampleCount; i++)
     {
       /* Retrieve the type of the next data element in the EDF file */
@@ -220,6 +271,10 @@ List parseEDF(std::string fname) {
           yR[curSample] = NA_REAL;
           dilR[curSample] = NA_REAL;
         }
+
+        /* get the ttl trigger info WHICH fs.??? is Input? */
+        InputS[curSample] = (double)fd->fs.input;
+
         curSample++;
       }
     }
@@ -232,14 +287,15 @@ List parseEDF(std::string fname) {
     Rcpp::Named("dilL")=dilL,
     Rcpp::Named("xR")=xR,
     Rcpp::Named("yR")=yR,
-    Rcpp::Named("dilR")=dilR
+    Rcpp::Named("dilR")=dilR,
+    Rcpp::Named("InputS")=InputS
   );
-
+  printf("Done parsing samples. Now parsing events and triggers.");
   Rcpp::List LL = Rcpp::List::create(
     Rcpp::Named("samples")=NDF,
     Rcpp::Named("recordingInfo")=recInfo,
-    Rcpp::Named("events")=parseEDFevents(fname)
+    Rcpp::Named("events")=parseEDFevents(fname),
+    Rcpp::Named("input")=parseEDFinput(fname)
   );
   return LL;
 }
-
